@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<!-- TENT 3D :: app icon generator.
+     Draws the curtain-sider mark on a canvas at an exact pixel size so every
+     ICO frame stays crisp. Use tool/icon/make_icon.ps1 to render and pack. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+function draw(s) {
+  const c = document.getElementById('c');
+  c.width = s; c.height = s;
+  const g = c.getContext('2d');
+  const simple = s < 32;
+  const u = s / 256;                       // design grid is 256
+  const P = (v) => Math.round(v * u);
+
+  // ---------------------------------------------------------------- badge
+  const bg = g.createLinearGradient(0, 0, 0, s);
+  bg.addColorStop(0, '#182032');
+  bg.addColorStop(1, '#0A0D14');
+  g.fillStyle = bg;
+  g.beginPath();
+  const r = P(56);
+  g.moveTo(r, 0); g.lineTo(s - r, 0);
+  g.quadraticCurveTo(s, 0, s, r);
+  g.lineTo(s, s - r); g.quadraticCurveTo(s, s, s - r, s);
+  g.lineTo(r, s); g.quadraticCurveTo(0, s, 0, s - r);
+  g.lineTo(0, r); g.quadraticCurveTo(0, 0, r, 0);
+  g.closePath(); g.fill();
+
+  g.strokeStyle = 'rgba(120,150,200,0.22)';
+  g.lineWidth = Math.max(1, P(4));
+  g.stroke();
+
+  // -------------------------------------------------------------- shadow
+  g.fillStyle = 'rgba(0,0,0,0.38)';
+  g.beginPath();
+  g.ellipse(P(128), P(206), P(104), P(12), 0, 0, Math.PI * 2);
+  g.fill();
+
+  // ------------------------------------------------------------ trailer box
+  const bx = P(24), by = P(62), bw = P(166), bh = P(108);
+  const body = g.createLinearGradient(0, by, 0, by + bh);
+  body.addColorStop(0, '#D7DEE9');
+  body.addColorStop(0.55, '#B9C3D2');
+  body.addColorStop(1, '#93A0B2');
+  g.fillStyle = body;
+  g.fillRect(bx, by, bw, bh);
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  g.fillRect(bx, by, bw, P(5));
+
+  // ------------------------------------------------- curtain (open side)
+  const cx = P(112), cw = bw - (cx - bx);
+  const cur = g.createLinearGradient(cx, 0, cx + cw, 0);
+  cur.addColorStop(0, '#FF8A3D');
+  cur.addColorStop(1, '#DE4E14');
+  g.fillStyle = cur;
+  g.fillRect(cx, by + P(5), cw, bh - P(5));
+
+  // slanted leading edge of the pulled-back curtain
+  g.fillStyle = 'rgba(255,255,255,0.20)';
+  g.beginPath();
+  g.moveTo(cx, by + bh);
+  g.lineTo(cx + P(26), by + P(5));
+  g.lineTo(cx + P(40), by + P(5));
+  g.lineTo(cx + P(14), by + bh);
+  g.closePath();
+  g.fill();
+
+  if (!simple) {
+    g.strokeStyle = 'rgba(0,0,0,0.22)';
+    g.lineWidth = Math.max(1, P(3));
+    for (let i = 1; i < 5; i++) {
+      const x = cx + (cw * i) / 5;
+      g.beginPath(); g.moveTo(x, by + P(6)); g.lineTo(x, by + bh); g.stroke();
+    }
+    // skirt shadow under the box
+    g.fillStyle = 'rgba(15,20,30,0.35)';
+    g.fillRect(bx, by + bh - P(9), bw, P(9));
+  }
+
+  // ------------------------------------------------------------------ cab
+  const kx = P(196), ky = P(84), kw = P(40), kh = P(86);
+  g.fillStyle = '#252C39';
+  g.beginPath();
+  g.moveTo(kx, ky + P(14));
+  g.lineTo(kx + P(10), ky);
+  g.lineTo(kx + kw, ky);
+  g.lineTo(kx + kw, ky + kh);
+  g.lineTo(kx, ky + kh);
+  g.closePath(); g.fill();
+  if (!simple) {
+    g.fillStyle = '#8FB6D6';
+    g.fillRect(kx + P(8), ky + P(12), P(24), P(14));
+    g.fillStyle = '#39424F';
+    g.fillRect(kx - P(3), ky + kh - P(12), P(46), P(10));
+  }
+
+  // --------------------------------------------------------------- wheels
+  g.fillStyle = '#0C0F15';
+  for (const wx of [P(64), P(206)]) {
+    g.beginPath(); g.arc(wx, P(182), P(24), 0, Math.PI * 2); g.fill();
+  }
+  if (!simple) {
+    g.fillStyle = '#8A97A8';
+    for (const wx of [P(64), P(206)]) {
+      g.beginPath(); g.arc(wx, P(182), P(10), 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  // ------------------------------------------------------------ ground bar
+  g.fillStyle = 'rgba(90,110,140,0.30)';
+  g.fillRect(P(18), P(206), P(220), P(4));
+}
+const q = new URLSearchParams(location.search);
+draw(parseInt(q.get('s') || '256', 10));
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>pending</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}#gl{display:block;width:320px;height:200px}</style>
+</head><body>
+<canvas id="gl" width="320" height="200"></canvas>
+<pre id="report">init</pre>
+<script>
+window.TENT3D_QUALITY = { shadowSize: 512 };
+window.__errs = [];
+window.addEventListener('error', function (e) { window.__errs.push((e.message || 'err') + ' @' + (e.filename || '').split('/').pop() + ':' + (e.lineno || 0)); });
+window.__rafQ = [];
+window.requestAnimationFrame = function (fn) { window.__rafQ.push(fn); return window.__rafQ.length; };
+window.cancelAnimationFrame = function () {};
+window.__now = 0;
+window.__pump = function (n, stepMs) {
+  for (var i = 0; i < n; i++) {
+    window.__now += (stepMs || 16);
+    var q = window.__rafQ; window.__rafQ = [];
+    for (var k = 0; k < q.length; k++) q[k](window.__now);
+    if (!q.length) break;
+  }
+};
+</script>
+<script src="../../assets/renderer/js/core.js"></script>
+<script src="../../assets/renderer/js/gfx.js"></script>
+<script src="../../assets/renderer/js/tex.js"></script>
+<script src="../../assets/renderer/js/truck.js"></script>
+<script src="../../assets/renderer/js/env.js"></script>
+<script src="../../assets/renderer/js/cargo.js"></script>
+<script src="../../assets/renderer/js/app.js"></script>
+<script>
+var log = [];
+function say(s) { log.push(s); document.getElementById('report').textContent = log.join('\n'); }
+function stamp(s) { say(s + ' @' + Math.round(performance.now()) + 'ms'); }
+var TSPEC = {
+  trailerLength: 13.6, trailerWidth: 2.55, trailerHeight: 2.72,
+  frontX: 3.42, floorY: 1.325,
+  cabColor: [0.72, 0.075, 0.055],
+  curtainColor: [0.80, 0.815, 0.835], curtainInnerColor: [0.62, 0.635, 0.66],
+  roofColor: [0.155, 0.165, 0.185], exposure: 1.0,
+};
+stamp('loaded');
+TENT3D.receive(JSON.stringify({ t: 'init', spec: TSPEC }));
+stamp('init sent, R=' + !!R);
+__pump(3);
+stamp('boot pumped, parts=' + (R ? R.parts.length : -1));
+__pump(10);
+stamp('10 frames');
+__pump(90);
+stamp('100 frames total');
+__pump(100);
+stamp('200 frames total');
+stamp('errors: ' + (window.__errs.join(' ;; ') || 'none'));
+document.title = 'DONE';
+</script>
+</body></html>

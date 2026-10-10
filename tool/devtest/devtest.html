@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>pending</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}#gl{display:block;width:320px;height:200px}</style>
+</head><body>
+<canvas id="gl" width="320" height="200"></canvas>
+<pre id="log"></pre>
+<script>
+window.__errs = [];
+window.TENT3D_QUALITY = { shadowSize: 512 };
+window.addEventListener('error', function (e) { window.__errs.push((e.message||'err')+' @'+(e.filename||'').split('/').pop()+':'+(e.lineno||0)); });
+window.__rafQ = [];
+window.requestAnimationFrame = function (fn) { window.__rafQ.push(fn); return window.__rafQ.length; };
+window.cancelAnimationFrame = function () {};
+window.__now = 0;
+window.__pump = function (n, stepMs) {
+  for (var i = 0; i < n; i++) {
+    window.__now += (stepMs || 16);
+    var q = window.__rafQ; window.__rafQ = [];
+    for (var k = 0; k < q.length; k++) q[k](window.__now);
+    if (!q.length) break;
+  }
+};
+</script>
+<script src="../../assets/renderer/js/core.js"></script>
+<script src="../../assets/renderer/js/gfx.js"></script>
+<script src="../../assets/renderer/js/tex.js"></script>
+<script src="../../assets/renderer/js/truck.js"></script>
+<script src="../../assets/renderer/js/env.js"></script>
+<script src="../../assets/renderer/js/cargo.js"></script>
+<script src="../../assets/renderer/js/app.js"></script>
+<script>
+var TSPEC = {
+  trailerLength: 13.6, trailerWidth: 2.55, trailerHeight: 2.72,
+  frontX: 3.42, floorY: 1.325,
+  cabColor: [0.72, 0.075, 0.055],
+  curtainColor: [0.80, 0.815, 0.835], curtainInnerColor: [0.62, 0.635, 0.66],
+  roofColor: [0.155, 0.165, 0.185], exposure: 1.0,
+};
+var BOX = {
+  x0: TSPEC.frontX - TSPEC.trailerLength + 0.08, x1: TSPEC.frontX - 0.12,
+  y0: TSPEC.floorY + 0.02, y1: TSPEC.floorY + TSPEC.trailerHeight - 0.06,
+  z0: -(TSPEC.trailerWidth / 2 - 0.055), z1: (TSPEC.trailerWidth / 2 - 0.055),
+};
+var out = [];
+window.__posts = [];
+(function () {
+  var orig = post;
+  post = function (m) { window.__posts.push(m); orig(m); };
+})();
+/* Optional bisect filter: devtest.html?only=a,b runs just those cases. */
+var ONLY = (function () {
+  var m = /[?&]only=([^&]*)/.exec(String(location.search || location.hash || ''));
+  if (!m) return null;
+  return m[1].split(',');
+})();
+function try_(name, fn) {
+  if (ONLY && ONLY.indexOf(name) < 0) return;
+  console.log('TEST_BEGIN ' + name);
+  var r;
+  try { r = fn(); out.push('[' + name + '] ' + r); }
+  catch (e) { out.push('[FAIL ' + name + '] ' + (e && e.message) + ' | ' + String(e && e.stack || '').split('\n')[1]); }
+  console.log('TEST_END ' + name + ' :: ' + r);
+}
+function mkItems(typeId, n) {
+  var t = CARGO_BY_ID[typeId], a = [];
+  for (var i = 0; i < n; i++) a.push({ id: typeId + i, typeId: typeId, index: i, dims: t.dims.slice(), weight: t.weight, yaw: 0 });
+  return a;
+}
+
+try_('boot', function () {
+  TENT3D.receive(JSON.stringify({ t: 'init', spec: TSPEC }));
+  if (!R) {
+    var errs = window.__posts.filter(function (m) { return m.t === 'error'; });
+    throw new Error(errs.length ? errs[0].message : 'no renderer, posts=' + JSON.stringify(window.__posts));
+  }
+  __pump(3);
+  var tris = R.parts.reduce(function (s, p) { return s + (p.mesh ? p.mesh.tris : 0); }, 0);
+  return 'parts=' + R.parts.length + ' tris=' + tris + ' lightC=' + JSON.stringify(R.lightCenter);
+});
+
+try_('renderIdle', function () {
+  __pump(30);
+  return 'drawCalls=' + R.stats.drawCalls + ' tris=' + R.stats.tris + ' glErr=' + R.gl.getError();
+});
+
+try_('tentOpen', function () {
+  TENT3D.receive(JSON.stringify({ t: 'openTent' }));
+  __pump(200);
+  var o = [0, 0, 0];
+  return 'anim=[' + TENT.tLeft.toFixed(2) + ',' + TENT.tRight.toFixed(2) + ',' + TENT.tRear.toFixed(2) +
+    '] panelX0=' + TRUCK.curtain.left[0].model[12].toFixed(2) +
+    ' panelXlast=' + TRUCK.curtain.left[TRUCK.curtain.left.length - 1].model[12].toFixed(2) +
+    ' doorZ=' + TRUCK.doors[1].model[14].toFixed(2) + ' lights=' + R.points.length;
+});
+
+try_('cargoWood', function () {
+  var plan = planLoad(mkItems('wood', 14), BOX);
+  TENT3D.receive(JSON.stringify({ t: 'cargo', plan: plan }));
+  __pump(300);
+  return 'placed=' + plan.placements.length + '/14 w=' + plan.totalWeight + ' loadComplete=' + !LOADING + ' parts=' + CARGO_PARTS.length;
+});
+
+try_('cargoPalletsForklift', function () {
+  var plan = planLoad(mkItems('pallets', 9), BOX);
+  TENT3D.receive(JSON.stringify({ t: 'cargo', plan: plan }));
+  var fk0 = FK.parts[0].model[12].toFixed(2);
+  __pump(400);
+  var fk1 = FK.parts[0].model[12].toFixed(2);
+  return 'placed=' + plan.placements.length + ' fkPlan=' + FK_PLAN.length + ' fkX ' + fk0 + '->' + fk1 + ' done=' + !LOADING;
+});
+
+try_('allCargoMeshes', function () {
+  var a = [];
+  for (var i = 0; i < CARGO_TYPES.length; i++) {
+    var t = CARGO_TYPES[i], d = cargoMesh(t.id, t.dims);
+    for (var k = 0; k < d.verts.length; k++) if (!isFinite(d.verts[k])) throw new Error(t.id + ' non-finite v' + k);
+    for (var k2 = 0; k2 < d.index.length; k2++) if (d.index[k2] >= d.verts.length / 12) throw new Error(t.id + ' index OOB ' + d.index[k2]);
+    a.push(t.id + '=' + d.tris + 't');
+  }
+  return a.join(' ');
+});
+
+try_('enterTrailer', function () {
+  TENT3D.receive(JSON.stringify({ t: 'enterTrailer' }));
+  __pump(60); var mid = CAM.pos.map(function (v) { return v.toFixed(1); }).join('/');
+  __pump(200);
+  var inside = CAM.pos[0] > TSPEC.frontX - TSPEC.trailerLength && CAM.pos[0] < TSPEC.frontX && Math.abs(CAM.pos[2]) < TRUCK.IHW;
+  return 'mid=' + mid + ' mode=' + CAM.mode + ' pos=' + CAM.pos.map(function (v) { return v.toFixed(2); }).join('/') + ' inside=' + inside;
+});
+
+try_('interiorWalk', function () {
+  var y0 = CAM.pos[1];
+  INPUT.keys['KeyW'] = true; __pump(60); INPUT.keys['KeyW'] = false;
+  var y1 = CAM.pos[1];
+  INPUT.keys['KeyA'] = true; __pump(30); INPUT.keys['KeyA'] = false;
+  __pump(10);
+  return 'mode=' + CAM.mode + ' moved dx=' + (CAM.pos[0]).toFixed(2) + ' clamped y=' + y1.toFixed(2) + ' z=' + CAM.pos[2].toFixed(2);
+});
+
+try_('exitTrailer', function () {
+  TENT3D.receive(JSON.stringify({ t: 'exitTrailer' }));
+  __pump(220);
+  return 'mode=' + CAM.mode + ' dist=' + CAM.dist.toFixed(1);
+});
+
+try_('dimensions', function () {
+  TENT3D.receive(JSON.stringify({ t: 'dimensions', visible: true }));
+  __pump(5);
+  var o = [0, 0, 0], n = 0;
+  for (var i = 0; i < DIMS.anchors.length; i++) if (R.project(DIMS.anchors[i].p, o)) n++;
+  return 'visible=' + DIMS.part.visible + ' anchorsOnScreen=' + n + '/' + DIMS.anchors.length;
+});
+
+try_('cameraPresets', function () {
+  var names = ['overview', 'front', 'rear', 'left', 'right', 'top', 'corner'], a = [];
+  for (var i = 0; i < names.length; i++) {
+    TENT3D.receive(JSON.stringify({ t: 'camera', preset: names[i], instant: true }));
+    __pump(6);
+    var o = [0, 0, 0], v = R.project([-1.4, 1.9, 0], o);
+    a.push(names[i] + (v && o[0] > -0.2 && o[0] < 1.2 && o[1] > -0.2 && o[1] < 1.2 ? '' : '=MISS'));
+  }
+  return a.join(' ');
+});
+
+try_('freeLook', function () {
+  TENT3D.receive(JSON.stringify({ t: 'look', dir: 'free' }));
+  __pump(100);
+  return 'mode=' + CAM.mode + ' dist=' + CAM.dist.toFixed(1) + ' yaw=' + CAM.yaw.toFixed(2);
+});
+
+try_('tentSidesIndependent', function () {
+  // Establish a known closed baseline; earlier cases may have opened the tent.
+  TENT3D.receive(JSON.stringify({ t: 'tent', left: 0, right: 0, rear: 0 }));
+  __pump(250);
+  var base = 'L=' + TENT.tLeft.toFixed(2) + ' R=' + TENT.tRight.toFixed(2);
+  TENT3D.receive(JSON.stringify({ t: 'tentSide', side: 'left', open: true }));
+  __pump(250);
+  var onlyLeft = 'L=' + TENT.tLeft.toFixed(2) + ' R=' + TENT.tRight.toFixed(2);
+  TENT3D.receive(JSON.stringify({ t: 'tentSide', side: 'right', open: true }));
+  __pump(250);
+  var both = 'L=' + TENT.tLeft.toFixed(2) + ' R=' + TENT.tRight.toFixed(2);
+  TENT3D.receive(JSON.stringify({ t: 'tentSide', side: 'left', open: false }));
+  __pump(250);
+  var onlyRight = 'L=' + TENT.tLeft.toFixed(2) + ' R=' + TENT.tRight.toFixed(2);
+  return base + ' | ' + onlyLeft + ' | ' + both + ' | ' + onlyRight;
+});
+
+try_('rearDoorsMirrored', function () {
+  TENT3D.receive(JSON.stringify({ t: 'rearDoors', open: true }));
+  __pump(200);
+  var a = [], o = [0, 0, 0];
+  for (var i = 0; i < TRUCK.doors.length; i++) {
+    var d = TRUCK.doors[i];
+    // leaf tip in world space: hinge + rotate local (w, 0, 0)
+    var c = Math.cos(d.model[0] || 0);
+    a.push('side' + d.side + ' hingeZ=' + d.model[14].toFixed(2) + ' yaw=' + d.baseYaw.toFixed(2));
+  }
+  return a.join(' | ');
+});
+
+try_('orbitConvention', function () {
+  // yaw 0 must put the camera in front of the truck (+X, the nose)
+  var f = PRESETS.front();
+  var pf = orbitPos(f.yaw, f.pitch, f.dist, f.target);
+  var rear = PRESETS.rear();
+  var pr = orbitPos(rear.yaw, rear.pitch, rear.dist, rear.target);
+  var right = PRESETS.right();
+  var prt = orbitPos(right.yaw, right.pitch, right.dist, right.target);
+  var left = PRESETS.left();
+  var plt = orbitPos(left.yaw, left.pitch, left.dist, left.target);
+  return 'front dz=' + (pf[2] - f.target[2]).toFixed(2) +
+    ' rear dx=' + (pr[0] - rear.target[0]).toFixed(2) +
+    ' right dz=' + (prt[2] - right.target[2]).toFixed(2) +
+    ' left dz=' + (plt[2] - left.target[2]).toFixed(2);
+});
+
+try_('orbitDragDirection', function () {
+  TENT3D.receive(JSON.stringify({ t: 'camera', preset: 'overview', instant: true }));
+  __pump(4);
+  var c = document.getElementById('gl');
+  function drag(dx, dy) {
+    c.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, clientX: 300, clientY: 300, bubbles: true }));
+    c.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 300 + dx, clientY: 300 + dy, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, clientX: 300 + dx, clientY: 300 + dy, bubbles: true }));
+  }
+  var y0 = orbitTarget.yaw;
+  drag(60, 0);
+  var y1 = orbitTarget.yaw;
+  var p0 = orbitTarget.pitch;
+  drag(0, 60);
+  var p1 = orbitTarget.pitch;
+  return 'yaw ' + y0.toFixed(2) + '->' + y1.toFixed(2) + ' (want +) pitch ' + p0.toFixed(2) + '->' + p1.toFixed(2) + ' (want +)';
+});
+
+try_('orbitClamps', function () {
+  var c = document.getElementById('gl');
+  function dragTo(y) {
+    c.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, clientX: 300, clientY: 300, bubbles: true }));
+    c.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 300, clientY: y, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, clientX: 300, clientY: y, bubbles: true }));
+  }
+  for (var i = 0; i < 20; i++) dragTo(0);
+  var hi = orbitTarget.pitch;
+  for (var j = 0; j < 40; j++) dragTo(600);
+  var lo = orbitTarget.pitch;
+  orbitTarget.dist = 1; var dmin = clamp(orbitTarget.dist, MIN_DIST, MAX_DIST);
+  orbitTarget.dist = 900; var dmax = clamp(orbitTarget.dist, MIN_DIST, MAX_DIST);
+  orbitTarget.dist = 20;
+  return 'pitchHi=' + hi.toFixed(2) + ' (<=1.40) pitchLo=' + lo.toFixed(2) + ' (>=-1.40) dist=[' + dmin + ',' + dmax + ']';
+});
+
+try_('orbitDamping', function () {
+  TENT3D.receive(JSON.stringify({ t: 'camera', preset: 'rear', instant: true }));
+  __pump(4);
+  var before = CAM.yaw;
+  setOrbitGoal(PRESETS.overview(), false);
+  __pump(2);
+  var mid = CAM.yaw;
+  __pump(400);
+  var after = CAM.yaw;
+  return 'yaw ' + before.toFixed(2) + '->' + mid.toFixed(2) + '->' + after.toFixed(2) +
+    ' goal=' + orbitTarget.yaw.toFixed(2) + ' settled=' + (Math.abs(after - orbitTarget.yaw) < 0.01);
+});
+
+try_('interruptTransition', function () {
+  var c = document.getElementById('gl');
+  TENT3D.receive(JSON.stringify({ t: 'camera', preset: 'rear' }));
+  __pump(10);
+  var yAnim = CAM.yaw;
+  c.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, clientX: 300, clientY: 300, bubbles: true }));
+  c.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 320, clientY: 300, bubbles: true }));
+  // onMove syncs the goal to where the transition actually got to, then adds
+  // the drag delta (20px * 0.005 = 0.1 rad).
+  var delta = orbitTarget.yaw - yAnim;
+  window.dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, clientX: 320, clientY: 300, bubbles: true }));
+  __pump(400);
+  return 'animKilled=' + (CAM.anim === null) +
+    ' goalMidTransition=' + (Math.abs(delta - 0.1) < 0.02) +
+    ' stable=' + (Math.abs(CAM.yaw - orbitTarget.yaw) < 0.01);
+});
+
+try_('setGeometryPreservesView', function () {
+  TENT3D.receive(JSON.stringify({ t: 'camera', preset: 'overview', instant: true }));
+  __pump(10);
+  var before = { yaw: CAM.yaw, pitch: CAM.pitch, dist: CAM.dist, tgt: CAM.target.slice() };
+  var parts0 = R.parts.length;
+  TENT3D.receive(JSON.stringify({ t: 'tent', left: 1, right: 1, rear: 1 }));
+  __pump(60);
+  var spec2 = {};
+  for (var k in TSPEC) spec2[k] = TSPEC[k];
+  spec2.trailerLength = 9.4;
+  TENT3D.receive(JSON.stringify({ t: 'setGeometry', spec: spec2 }));
+  __pump(10);
+  var after = { yaw: CAM.yaw, pitch: CAM.pitch, dist: CAM.dist, tgt: CAM.target.slice() };
+  var keep = Math.abs(after.yaw - before.yaw) < 0.01 && Math.abs(after.pitch - before.pitch) < 0.01;
+  return 'viewKept=' + keep + ' tentKept=' + (TENT.left === 1 && TENT.right === 1) +
+    ' len=' + SPEC.trailerLength + ' parts ' + parts0 + '->' + R.parts.length +
+    ' dimsRebuilt=' + !!DIMS.anchors.length + ' rearX=' + (SPEC.frontX - SPEC.trailerLength).toFixed(2);
+});
+
+try_('presetsFollowGeometry', function () {
+  var out = [];
+  for (var i = 0; i < ['rear', 'left', 'right', 'top'].length; i++) {
+    var n = ['rear', 'left', 'right', 'top'][i];
+    var p = PRESETS[n]();
+    out.push(n + ' tgtX=' + p.target[0].toFixed(2) + ' d=' + p.dist.toFixed(1));
+  }
+  return out.join(' ') + ' | rearFace=' + (SPEC.frontX - SPEC.trailerLength).toFixed(2) +
+    ' cx=' + (SPEC.frontX - SPEC.trailerLength / 2).toFixed(2);
+});
+
+try_('resetCameraKeepsScene', function () {
+  TENT3D.receive(JSON.stringify({ t: 'cargo', plan: planLoad(mkItems('boxes', 10), BOX) }));
+  __pump(300);
+  var cargo0 = CARGO_PARTS.length;
+  TENT3D.receive(JSON.stringify({ t: 'dimensions', visible: true }));
+  TENT3D.receive(JSON.stringify({ t: 'camera', preset: 'rear', instant: true }));
+  __pump(6);
+  TENT3D.receive(JSON.stringify({ t: 'resetCamera' }));
+  __pump(200);
+  return 'cargoKept=' + (CARGO_PARTS.length === cargo0) + ' dimsKept=' + DIMS.part.visible +
+    ' preset=' + CAM.preset + ' tentRear=' + TENT.tRear.toFixed(2);
+});
+
+try_('resetSceneKeepsCamera', function () {
+  TENT3D.receive(JSON.stringify({ t: 'camera', preset: 'top', instant: true }));
+  __pump(6);
+  var yaw0 = CAM.yaw, pitch0 = CAM.pitch;
+  TENT3D.receive(JSON.stringify({ t: 'resetScene' }));
+  __pump(10);
+  return 'camKept=' + (Math.abs(CAM.yaw - yaw0) < 0.01 && Math.abs(CAM.pitch - pitch0) < 0.01) +
+    ' cargo=' + CARGO_PARTS.length + ' tent=' + TENT.tLeft.toFixed(2) + '/' + TENT.tRight.toFixed(2) +
+    ' rear=' + TENT.tRear.toFixed(2) + ' dims=' + DIMS.part.visible;
+});
+
+try_('setLookNoRebuild', function () {
+  var parts0 = R.parts.length, tris0 = R.parts.reduce(function (s, p) { return s + (p.mesh ? p.mesh.tris : 0); }, 0);
+  TENT3D.receive(JSON.stringify({ t: 'setCabColor', cabColor: [0.1, 0.4, 0.9] }));
+  TENT3D.receive(JSON.stringify({ t: 'setExposure', exposure: 1.6 }));
+  __pump(4);
+  var tris1 = R.parts.reduce(function (s, p) { return s + (p.mesh ? p.mesh.tris : 0); }, 0);
+  return 'parts ' + parts0 + '->' + R.parts.length + ' tris ' + tris0 + '->' + tris1 +
+    ' paint=' + JSON.stringify(TRUCK.MAT.paint.albedo) + ' exposure=' + R.exposure.toFixed(2);
+});
+
+try_('gpuNoLeakOnGeometry', function () {
+  var t0 = performance.memory ? performance.memory.usedJSHeapSize : 0;
+  var parts0 = R.parts.length;
+  for (var i = 0; i < 4; i++) {
+    var sp = {}; for (var k in TSPEC) sp[k] = TSPEC[k];
+    sp.trailerLength = 10 + i * 0.7;
+    TENT3D.receive(JSON.stringify({ t: 'setGeometry', spec: sp }));
+  }
+  __pump(20);
+  var t1 = performance.memory ? performance.memory.usedJSHeapSize : 0;
+  return 'parts ' + parts0 + '->' + R.parts.length + ' glErr=' + R.gl.getError() +
+    ' heapDelta=' + (t1 - t0);
+});
+
+try_('duplicateInitGuard', function () {
+  var parts0 = R.parts.length;
+  TENT3D.receive(JSON.stringify({ t: 'init', spec: TSPEC }));
+  __pump(10);
+  return 'parts ' + parts0 + '->' + R.parts.length + ' (no second renderer) glErr=' + R.gl.getError();
+});
+
+try_('reset', function () {
+  TENT3D.receive(JSON.stringify({ t: 'reset' }));
+  __pump(200);
+  return 'cargo=' + CARGO_PARTS.length + ' tent=' + TENT.tLeft.toFixed(2) + '/' + TENT.tRear.toFixed(2) + ' dims=' + DIMS.part.visible;
+});
+
+try_('closeTent', function () {
+  TENT3D.receive(JSON.stringify({ t: 'closeTent' }));
+  __pump(250);
+  return 'anim=[' + TENT.tLeft.toFixed(2) + ',' + TENT.tRight.toFixed(2) + ',' + TENT.tRear.toFixed(2) + ']';
+});
+
+try_('finalRender', function () {
+  __pump(20);
+  return 'drawCalls=' + R.stats.drawCalls + ' glErr=' + R.gl.getError() + ' rafQueue=' + window.__rafQ.length;
+});
+
+var rep = document.createElement('pre');
+rep.id = 'report';
+rep.textContent = out.join('\n') + '\n--- window errors: ' + (window.__errs.join(' ;; ') || 'none');
+document.body.appendChild(rep);
+document.title = 'DONE';
+</script>
+</body></html>

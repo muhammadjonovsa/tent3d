@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>TENT 3D Renderer</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    overflow: hidden; background: #05070a;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none; cursor: grab;
+  }
+  body:active { cursor: grabbing; }
+  #gl { display: block; width: 100vw; height: 100vh; }
+  #boot {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    background: radial-gradient(ellipse at 50% 45%, #12161d 0%, #05070a 70%);
+    color: #cdd6e4; z-index: 10; transition: opacity .45s ease;
+  }
+  #boot.hide { opacity: 0; pointer-events: none; }
+  .mark {
+    font-size: 30px; letter-spacing: 12px; font-weight: 300;
+    color: #eef3fa; text-indent: 12px;
+  }
+  .sub { font-size: 11px; letter-spacing: 4px; color: #5f6c80; text-indent: 4px; }
+  .bar { width: 260px; height: 3px; background: #1b2029; border-radius: 3px; overflow: hidden; }
+  .bar > i {
+    display: block; height: 100%; width: 8%;
+    background: linear-gradient(90deg, #2d7ff9, #59c1ff);
+    animation: sweep 1.15s cubic-bezier(.5,0,.5,1) infinite;
+  }
+  @keyframes sweep { 0% { margin-left: -10%; width: 10%; } 100% { margin-left: 100%; width: 42%; } }
+  .err {
+    max-width: 560px; padding: 16px 20px; border-radius: 10px;
+    background: #1a1114; border: 1px solid #4a2028; color: #ff9a9a;
+    font-size: 12.5px; line-height: 1.55; white-space: pre-wrap;
+    font-family: Consolas, monospace; display: none;
+  }
+  .hint { font-size: 11px; color: #46525f; letter-spacing: 1.4px; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="boot">
+  <div class="mark">TENT&nbsp;3D</div>
+  <div class="sub">LOADING RENDERER</div>
+  <div class="bar"><i></i></div>
+  <div class="hint">PROCEDURAL TRUCK VISUALISATION</div>
+  <div class="err" id="err"></div>
+</div>
+<script src="js/core.js"></script>
+<script src="js/gfx.js"></script>
+<script src="js/tex.js"></script>
+<script src="js/truck.js"></script>
+<script src="js/env.js"></script>
+<script src="js/cargo.js"></script>
+<script src="js/app.js"></script>
+<script>
+(function () {
+  var boot = document.getElementById('boot');
+  function fail(msg) {
+    var e = document.getElementById('err');
+    e.style.display = 'block';
+    e.textContent = String(msg);
+    var s = boot.querySelector('.sub'); if (s) s.textContent = 'RENDERER ERROR';
+    var b = boot.querySelector('.bar'); if (b) b.style.display = 'none';
+    try {
+      if (window.flutter_inappwebview) {
+        window.flutter_inappwebview.callHandler('TENT3D', JSON.stringify({ t: 'error', fatal: true, message: String(msg) }));
+      }
+    } catch (x) {}
+  }
+  window.addEventListener('error', function (ev) {
+    fail((ev.message || 'error') + (ev.filename ? '\n  ' + ev.filename + ':' + ev.lineno : ''));
+  });
+  window.__tent3dFail = fail;
+  var probe = document.createElement('canvas').getContext('webgl2');
+  if (!probe) {
+    fail('WebGL2 is not available.\nEnable hardware acceleration and restart TENT 3D.');
+  } else {
+    var orig = boot.querySelector('.sub');
+    if (orig) orig.textContent = 'BUILDING TRUCK';
+  }
+})();
+</script>
+<script>
+/* Dart signals readiness through this hook. */
+window.__tent3dBoot = function () {
+  var boot = document.getElementById('boot');
+  setTimeout(function () { boot.classList.add('hide'); }, 90);
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>shot</title>
+<style>html,body{margin:0;background:#05070a;overflow:hidden}#gl{display:block;width:1280px;height:800px}</style>
+</head><body>
+<canvas id="gl"></canvas>
+<script>
+window.__rafQ = [];
+window.requestAnimationFrame = function (fn) { window.__rafQ.push(fn); return window.__rafQ.length; };
+window.cancelAnimationFrame = function () {};
+window.__now = 0;
+window.__pump = function (n, stepMs) {
+  for (var i = 0; i < n; i++) {
+    window.__now += (stepMs || 16);
+    var q = window.__rafQ; window.__rafQ = [];
+    for (var k = 0; k < q.length; k++) q[k](window.__now);
+    if (!q.length) break;
+  }
+};
+</script>
+<script src="../../assets/renderer/js/core.js"></script>
+<script src="../../assets/renderer/js/gfx.js"></script>
+<script src="../../assets/renderer/js/tex.js"></script>
+<script src="../../assets/renderer/js/truck.js"></script>
+<script src="../../assets/renderer/js/env.js"></script>
+<script src="../../assets/renderer/js/cargo.js"></script>
+<script src="../../assets/renderer/js/app.js"></script>
+<script>
+var TSPEC = {
+  trailerLength: 13.6, trailerWidth: 2.55, trailerHeight: 2.72,
+  frontX: 3.42, floorY: 1.325,
+  cabColor: [0.74, 0.085, 0.060],
+  curtainColor: [0.80, 0.815, 0.835], curtainInnerColor: [0.62, 0.635, 0.66],
+  roofColor: [0.155, 0.165, 0.185], exposure: 1.0,
+};
+var BOX = {
+  x0: TSPEC.frontX - TSPEC.trailerLength + 0.08, x1: TSPEC.frontX - 0.12,
+  y0: TSPEC.floorY + 0.02, y1: TSPEC.floorY + TSPEC.trailerHeight - 0.06,
+  z0: -(TSPEC.trailerWidth / 2 - 0.055), z1: (TSPEC.trailerWidth / 2 - 0.055),
+};
+function load(typeId, n) {
+  var t = CARGO_BY_ID[typeId], items = [];
+  for (var i = 0; i < n; i++) items.push({ id: typeId + i, typeId: typeId, index: i, dims: t.dims.slice(), weight: t.weight, yaw: 0 });
+  var plan = planLoad(items, BOX);
+  TENT3D.receive(JSON.stringify({ t: 'cargo', plan: plan }));
+  return plan.placements.length;
+}
+function setCam(yaw, pitch, dist, target, fov) {
+  CAM.mode = 'orbit'; CAM.anim = null;
+  CAM.yaw = yaw; CAM.pitch = pitch; CAM.dist = dist;
+  CAM.target = target; CAM.fov = fov || 40;
+  applyOrbit();
+}
+TENT3D.receive(JSON.stringify({ t: 'init', spec: TSPEC }));
+__pump(2);
+
+var shot = (location.search.match(/shot=([a-zA-Z0-9_-]+)/) || [])[1] || 'overview';
+var err = null;
+try {
+  if (shot === 'overview') { setCam(0.72, 0.26, 17.0, [-1.6, 2.20, 0], 38); __pump(4); }
+  else if (shot === 'front') { setCam(0.0, 0.11, 11.5, [4.35, 1.60, 0], 34); __pump(4); }
+  else if (shot === 'rear') { setCam(3.1416, 0.15, 15.0, [-7.60, 1.90, 0], 34); __pump(4); }
+  else if (shot === 'sideOpen') { TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(160, 34); setCam(1.35, 0.16, 12.5, [-4.0, 2.20, 0]); __pump(4); }
+  else if (shot === 'openFront') { TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(160, 34); setCam(0.30, 0.34, 13.5, [0.2, 2.30, 0]); __pump(4); }
+  else if (shot === 'top') { setCam(0.55, 1.24, 20.0, [-2.0, 1.20, 0], 38); __pump(4); }
+  else if (shot === 'dims') { TENT3D.receive(JSON.stringify({ t: 'dimensions', visible: true })); __pump(140, 34); setCam(0.86, 0.26, 16.0, [-2.6, 1.90, 0]); __pump(4); }
+  else if (shot === 'interiorWood') {
+    TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(140, 34);
+    load('wood', 14); __pump(240, 34);
+    CAM.mode = 'interior'; CAM.pos = [-6.2, TSPEC.floorY + 1.55, 0.0];
+    CAM.yaw = 1.5708; CAM.pitch = -0.05; updateLookTarget(); CAM.fov = 62; __pump(4);
+  }
+  else if (shot === 'interiorWide') {
+    TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(140, 34);
+    load('boxes', 40); __pump(300, 34);
+    CAM.mode = 'interior'; CAM.pos = [-9.0, TSPEC.floorY + 1.70, 0.0];
+    CAM.yaw = 1.5708; CAM.pitch = -0.02; updateLookTarget(); CAM.fov = 68; __pump(4);
+  }
+  else if (shot === 'interiorEmpty') {
+    TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(140, 34);
+    CAM.mode = 'interior'; CAM.pos = [-9.2, TSPEC.floorY + 1.60, 0.0];
+    CAM.yaw = 1.5708; CAM.pitch = -0.03; updateLookTarget(); CAM.fov = 66; __pump(4);
+  }
+  else if (shot === 'forklift') {
+    TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(140, 34);
+    var n = load('pallets', 9);
+    __pump(150, 34);
+    setCam(-0.55, 0.24, 15.0, [-4.0, 2.00, 0]); __pump(4);
+  }
+  else if (shot === 'forkliftInside') {
+    TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(140, 34);
+    load('pallets', 9); __pump(170, 34);
+    CAM.mode = 'interior'; CAM.pos = [-5.0, TSPEC.floorY + 1.75, 0.55];
+    CAM.yaw = 1.05; CAM.pitch = -0.14; updateLookTarget(); CAM.fov = 66; __pump(4);
+  }
+  else if (shot === 'pipes') {
+    TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(140, 34);
+    load('pipes', 40); __pump(330, 34);
+    CAM.mode = 'interior'; CAM.pos = [-9.0, TSPEC.floorY + 1.55, 0.0];
+    CAM.yaw = 1.5708; CAM.pitch = -0.02; updateLookTarget(); CAM.fov = 66; __pump(4);
+  }
+  else if (shot === 'bags') {
+    TENT3D.receive(JSON.stringify({ t: 'openTent' })); __pump(140, 34);
+    load('bags', 60); __pump(360, 34);
+    CAM.mode = 'interior'; CAM.pos = [-8.6, TSPEC.floorY + 1.60, 0.0];
+    CAM.yaw = 1.5708; CAM.pitch = -0.02; updateLookTarget(); CAM.fov = 66; __pump(4);
+  }
+  else { err = 'unknown shot ' + shot; }
+} catch (e) { err = String(e && e.message) + ' | ' + String(e && e.stack || '').split('\n').slice(0, 3).join(' / '); }
+
+__pump(3);
+var abl = (location.search.match(/abl=([a-z0-9_]+)/) || [])[1] || '';
+if (abl) {
+  if (abl.indexOf('nofloor') >= 0) { ENVD.floorPart.visible = false; }
+  if (abl.indexOf('nocyc') >= 0) { ENVD.wallPart.visible = false; }
+  if (abl.indexOf('noshadow') >= 0) { R.shadowStrength = 0; }
+  if (abl.indexOf('noenv') >= 0) { var _se = R.skyCol; R.skyCol = [0,0,0]; R.groundCol = [0,0,0]; }
+  __pump(2);
+}
+document.title = err ? ('ERR ' + err) : ('OK draw=' + R.stats.drawCalls + ' tris=' + R.stats.tris);
+</script>
+</body></html>
